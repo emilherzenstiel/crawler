@@ -1,0 +1,18 @@
+{
+  "name": "deal-radar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Arbitrage-Tool for finding deals on Kleinanzeigen and eBay",
+  "workspaces": [
+    "packages/scraper",
+    "packages/api",
+    "packages/dashboard"
+  ],
+  "scripts": {
+    "db:init": "node packages/api/src/db/init-db.js",
+    "dev:api": "npm run dev -w packages/api",
+    "dev:dashboard": "npm run dev -w packages/dashboard",
+    "dev:scraper": "npm run dev -w packages/scraper",
+    "build": "npm run build -w packages/scraper && npm run build -w packages/api && npm run build -w packages/dashboard"
+  }
+}
