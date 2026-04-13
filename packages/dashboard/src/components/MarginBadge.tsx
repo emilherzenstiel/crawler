@@ -1,29 +1,24 @@
 interface MarginBadgeProps {
-  marginPercent: number;
+  marginPercent: number | null | undefined;
+}
+
+export function marginTier(p: number): 'hot' | 'good' | 'neutral' | 'bad' {
+  if (p >= 100) return 'hot';
+  if (p >= 50) return 'good';
+  if (p >= 0) return 'neutral';
+  return 'bad';
 }
 
 export function MarginBadge({ marginPercent }: MarginBadgeProps) {
-  let color = '#dc3545'; // red
-  let label = 'Low';
-
-  if (marginPercent >= 50) {
-    color = '#28a745'; // green
-    label = 'Hot';
-  } else if (marginPercent >= 20) {
-    color = '#ffc107'; // yellow
-    label = 'OK';
+  if (marginPercent == null) {
+    return <span className="margin-badge neutral">N/A</span>;
   }
-
+  const tier = marginTier(marginPercent);
+  const sign = marginPercent >= 0 ? '+' : '';
   return (
-    <span style={{
-      background: color,
-      color: marginPercent >= 20 && marginPercent < 50 ? '#000' : '#fff',
-      padding: '2px 8px',
-      borderRadius: 4,
-      fontSize: 12,
-      fontWeight: 'bold',
-    }}>
-      {label} {marginPercent.toFixed(0)}%
+    <span className={`margin-badge ${tier}`} title={`${marginPercent.toFixed(2)}%`}>
+      {sign}
+      {Math.round(marginPercent)}%
     </span>
   );
 }

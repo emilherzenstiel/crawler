@@ -1,39 +1,39 @@
-import { useState, useEffect } from 'react';
-import axios from 'axios';
+import { useCallback, useEffect, useState } from 'react';
+import { dealsApi, Deal, DealsQuery, DealsResponse } from '../api/client';
 
-export interface Deal {
-  id: number;
-  external_id: string;
-  platform: string;
-  title: string;
-  description?: string;
-  ask_price: number;
-  url: string;
-  image_url?: string;
-  location?: string;
-  seller?: string;
-  estimated_sell_price?: number;
-  estimated_margin?: number;
-  margin_percent?: number;
-  score?: number;
-  status: string;
-  found_at: string;
-}
-
-export function useDeals(status?: string) {
-  const [deals, setDeals] = useState<Deal[]>([]);
+export function useDeals(query: DealsQuery) {
+  const [data, setData] = useState<DealsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const params = new URLSearchParams();
-    if (status) params.set('status', status);
+  // Serialize the query so it's a stable dependency
+  const key = JSON.stringify(query);
 
-    axios.get(`/api/deals?${params}`)
-      .then(res => setDeals(res.data))
-      .catch(err => setError(err.message))
+  const refetch = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    dealsApi
+      .list(query)
+      .then((resp) => setData(resp))
+      .catch((err) => setError(err.message ?? 'Unknown error'))
       .finally(() => setLoading(false));
-  }, [status]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
 
-  return { deals, loading, error };
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+
+  const updateLocalDeal = useCallback((id: number, patch: Partial<Deal>) => {
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            deals: prev.deals.map((d) => (d.id === id ? { ...d, ...patch } : d)),
+          }
+        : prev
+    );
+  }, []);
+
+  return { data, loading, error, refetch, updateLocalDeal };
 }

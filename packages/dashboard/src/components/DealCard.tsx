@@ -1,43 +1,83 @@
-import { Deal } from '../hooks/useDeals.ts';
-import { MarginBadge } from './MarginBadge.tsx';
+import { Deal, formatCents } from '../api/client';
+import { MarginBadge } from './MarginBadge';
 
 interface DealCardProps {
   deal: Deal;
+  onStatusChange?: (id: number, status: Deal['status']) => void;
 }
 
-function formatCents(cents: number): string {
-  return (cents / 100).toFixed(2) + ' €';
-}
+export function DealCard({ deal, onStatusChange }: DealCardProps) {
+  const hot = (deal.margin_percent ?? 0) >= 100;
 
-export function DealCard({ deal }: DealCardProps) {
   return (
-    <div style={{
-      border: '1px solid #ddd',
-      borderRadius: 8,
-      padding: 16,
-      marginBottom: 12,
-      display: 'flex',
-      gap: 16,
-    }}>
-      {deal.image_url && (
-        <img src={deal.image_url} alt={deal.title} style={{ width: 120, height: 90, objectFit: 'cover', borderRadius: 4 }} />
-      )}
-      <div style={{ flex: 1 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-          <h3 style={{ margin: 0 }}>
-            <a href={deal.url} target="_blank" rel="noopener noreferrer">{deal.title}</a>
-          </h3>
-          {deal.margin_percent != null && <MarginBadge marginPercent={deal.margin_percent} />}
+    <div className={`deal-card ${hot ? 'hot' : ''}`}>
+      <div className="thumb">
+        {deal.image_url ? (
+          <img src={deal.image_url} alt="" loading="lazy" />
+        ) : (
+          <span>NO IMG</span>
+        )}
+      </div>
+
+      <div className="content">
+        <div className="title">
+          <a href={deal.url} target="_blank" rel="noopener noreferrer">
+            {deal.title}
+          </a>
         </div>
-        <p style={{ margin: '4px 0', color: '#666' }}>
-          {deal.platform} {deal.location && `· ${deal.location}`}
-        </p>
-        <div style={{ display: 'flex', gap: 20 }}>
-          <span><strong>Preis:</strong> {formatCents(deal.ask_price)}</span>
-          {deal.estimated_sell_price && <span><strong>Verkauf:</strong> ~{formatCents(deal.estimated_sell_price)}</span>}
-          {deal.estimated_margin && <span><strong>Marge:</strong> {formatCents(deal.estimated_margin)}</span>}
+
+        <div className="meta">
+          <span>{deal.platform}</span>
+          {deal.location && <span>· {deal.location}</span>}
+          {deal.category_name && <span>· {deal.category_name}</span>}
+          {deal.reference_display_name && (
+            <span className="text-green">↔ {deal.reference_display_name}</span>
+          )}
         </div>
-        <span style={{ fontSize: 12, color: '#999' }}>Status: {deal.status} · Score: {deal.score?.toFixed(2) ?? '–'}</span>
+
+        <div className="prices">
+          <div>
+            <span className="label">Ask</span>
+            <span className="val">{formatCents(deal.ask_price)}</span>
+          </div>
+          <div>
+            <span className="label">Est. Sell</span>
+            <span className="val">{formatCents(deal.estimated_sell_price)}</span>
+          </div>
+          <div>
+            <span className="label">Margin</span>
+            <span
+              className={`val ${
+                (deal.estimated_margin ?? 0) >= 0 ? 'text-green' : 'text-red'
+              }`}
+            >
+              {formatCents(deal.estimated_margin)}
+            </span>
+          </div>
+          <div>
+            <span className="label">Score</span>
+            <span className="val mono">{deal.score != null ? deal.score.toFixed(2) : '–'}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="aside">
+        <MarginBadge marginPercent={deal.margin_percent} />
+        {onStatusChange ? (
+          <select
+            className={`status-pill ${deal.status}`}
+            value={deal.status}
+            onChange={(e) => onStatusChange(deal.id, e.target.value as Deal['status'])}
+          >
+            <option value="new">new</option>
+            <option value="contacted">contacted</option>
+            <option value="bought">bought</option>
+            <option value="sold">sold</option>
+            <option value="skipped">skipped</option>
+          </select>
+        ) : (
+          <span className={`status-pill ${deal.status}`}>{deal.status}</span>
+        )}
       </div>
     </div>
   );
