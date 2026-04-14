@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'react';
 import { categoriesApi, Category, formatCents } from '../api/client';
+import { TagInput } from '../components/TagInput';
+import { InlineEdit } from '../components/InlineEdit';
 
 interface FormState {
   name: string;
   platform: 'kleinanzeigen' | 'ebay';
-  keywords: string; // comma-separated in the form
-  max_buy_price: string; // in euros in the form
+  keywords: string[];
+  max_buy_price_euros: string;
 }
 
 const EMPTY_FORM: FormState = {
   name: '',
   platform: 'kleinanzeigen',
-  keywords: '',
-  max_buy_price: '',
+  keywords: [],
+  max_buy_price_euros: '',
 };
 
 export function CategoriesPage() {
@@ -39,8 +41,8 @@ export function CategoriesPage() {
     setForm({
       name: cat.name,
       platform: cat.platform,
-      keywords: cat.keywords.join(', '),
-      max_buy_price: cat.max_buy_price != null ? String(cat.max_buy_price / 100) : '',
+      keywords: [...cat.keywords],
+      max_buy_price_euros: cat.max_buy_price != null ? String(cat.max_buy_price / 100) : '',
     });
     setShowForm(true);
   };
@@ -48,24 +50,27 @@ export function CategoriesPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    const keywords = form.keywords.split(',').map((s) => s.trim()).filter(Boolean);
-    const max_buy_price = form.max_buy_price ? Math.round(Number(form.max_buy_price) * 100) : null;
+
+    if (form.keywords.length === 0) {
+      setError('At least one keyword is required');
+      return;
+    }
+
+    const max_buy_price = form.max_buy_price_euros
+      ? Math.round(Number(form.max_buy_price_euros) * 100)
+      : null;
 
     try {
+      const payload = {
+        name: form.name,
+        platform: form.platform,
+        keywords: form.keywords,
+        max_buy_price,
+      };
       if (editing) {
-        await categoriesApi.update(editing.id, {
-          name: form.name,
-          platform: form.platform,
-          keywords,
-          max_buy_price,
-        });
+        await categoriesApi.update(editing.id, payload);
       } else {
-        await categoriesApi.create({
-          name: form.name,
-          platform: form.platform,
-          keywords,
-          max_buy_price,
-        });
+        await categoriesApi.create(payload);
       }
       setShowForm(false);
       load();
@@ -74,10 +79,10 @@ export function CategoriesPage() {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Kategorie wirklich löschen?')) return;
+  const handleDelete = async (cat: Category) => {
+    if (!confirm(`Kategorie "${cat.name}" wirklich löschen?`)) return;
     try {
-      await categoriesApi.delete(id);
+      await categoriesApi.delete(cat.id);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Delete failed');
@@ -85,8 +90,29 @@ export function CategoriesPage() {
   };
 
   const toggleActive = async (cat: Category) => {
-    await categoriesApi.update(cat.id, { active: cat.active ? 0 : 1 });
-    load();
+    setCategories((prev) =>
+      prev.map((c) => (c.id === cat.id ? { ...c, active: cat.active ? 0 : 1 } : c)),
+    );
+    try {
+      await categoriesApi.update(cat.id, { active: cat.active ? 0 : 1 });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Update failed');
+      load();
+    }
+  };
+
+  const patchInline = async (
+    id: number,
+    data: Partial<Pick<Category, 'name' | 'max_buy_price'>>,
+  ) => {
+    setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, ...data } : c)));
+    try {
+      const updated = await categoriesApi.update(id, data);
+      setCategories((prev) => prev.map((c) => (c.id === id ? updated : c)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Update failed');
+      load();
+    }
   };
 
   return (
@@ -110,32 +136,67 @@ export function CategoriesPage() {
       <table className="data-table">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Platform</th>
+            <th style={{ width: 220 }}>Name</th>
+            <th style={{ width: 120 }}>Platform</th>
             <th>Keywords</th>
-            <th>Max Buy</th>
-            <th>Active</th>
-            <th />
+            <th style={{ width: 140 }}>Max Buy</th>
+            <th style={{ width: 80 }}>Active</th>
+            <th style={{ width: 140 }} />
           </tr>
         </thead>
         <tbody>
           {categories.map((cat) => (
             <tr key={cat.id}>
-              <td>{cat.name}</td>
-              <td className="muted">{cat.platform}</td>
-              <td className="muted" style={{ maxWidth: 320 }}>
-                {cat.keywords.join(', ')}
-              </td>
-              <td>{formatCents(cat.max_buy_price)}</td>
               <td>
-                <button onClick={() => toggleActive(cat)}>
+                <InlineEdit
+                  value={cat.name}
+                  width={180}
+                  onSave={(next) => patchInline(cat.id, { name: next })}
+                />
+              </td>
+              <td className="muted">{cat.platform}</td>
+              <td>
+                <div className="row gap-2" style={{ flexWrap: 'wrap' }}>
+                  <span className="count-badge">{cat.keywords.length}</span>
+                  <span className="muted" style={{ fontSize: 11 }}>
+                    {cat.keywords.slice(0, 4).join(', ')}
+                    {cat.keywords.length > 4 ? ` +${cat.keywords.length - 4}` : ''}
+                  </span>
+                </div>
+              </td>
+              <td>
+                <InlineEdit
+                  type="number"
+                  step="1"
+                  width={100}
+                  value={cat.max_buy_price != null ? cat.max_buy_price / 100 : ''}
+                  format={() =>
+                    cat.max_buy_price != null ? (
+                      formatCents(cat.max_buy_price)
+                    ) : (
+                      <span className="dim">—</span>
+                    )
+                  }
+                  placeholder="€"
+                  onSave={(next) => {
+                    const cents =
+                      next.trim() === '' ? null : Math.round(Number(next) * 100);
+                    return patchInline(cat.id, { max_buy_price: cents });
+                  }}
+                />
+              </td>
+              <td>
+                <button
+                  onClick={() => toggleActive(cat)}
+                  className={cat.active ? 'primary' : ''}
+                >
                   {cat.active ? 'ON' : 'OFF'}
                 </button>
               </td>
               <td>
                 <div className="row">
                   <button onClick={() => openEdit(cat)}>Edit</button>
-                  <button className="danger" onClick={() => handleDelete(cat.id)}>
+                  <button className="danger" onClick={() => handleDelete(cat)}>
                     Del
                   </button>
                 </div>
@@ -178,20 +239,19 @@ export function CategoriesPage() {
                 </select>
               </div>
               <div className="form-group">
-                <label>Keywords (comma-separated)</label>
-                <input
+                <label>Keywords (Enter or comma to add)</label>
+                <TagInput
                   value={form.keywords}
-                  onChange={(e) => setForm({ ...form, keywords: e.target.value })}
+                  onChange={(keywords) => setForm({ ...form, keywords })}
                   placeholder="sockel 775, lga 1366, am2+"
-                  required
                 />
               </div>
               <div className="form-group">
                 <label>Max Buy Price (€)</label>
                 <input
                   type="number"
-                  value={form.max_buy_price}
-                  onChange={(e) => setForm({ ...form, max_buy_price: e.target.value })}
+                  value={form.max_buy_price_euros}
+                  onChange={(e) => setForm({ ...form, max_buy_price_euros: e.target.value })}
                   placeholder="400"
                 />
               </div>
