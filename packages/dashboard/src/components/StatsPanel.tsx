@@ -1,44 +1,104 @@
-import { useState, useEffect } from 'react';
-import axios from 'axios';
+import { useEffect, useState } from 'react';
+import { statsApi, Stats, formatCents } from '../api/client';
+import { Sparkline } from './Sparkline';
 
-interface Stats {
-  total_deals: number;
-  new_deals: number;
-  bought_deals: number;
-  sold_deals: number;
-  total_profit_cents: number;
-  avg_margin_percent: number;
+interface StatCardProps {
+  label: string;
+  value: string;
+  sub?: string;
+  spark?: number[];
+  color?: string;
 }
 
-export function StatsPanel() {
-  const [stats, setStats] = useState<Stats | null>(null);
-
-  useEffect(() => {
-    axios.get('/api/stats').then(res => setStats(res.data));
-  }, []);
-
-  if (!stats) return <p>Lade Statistiken...</p>;
-
+function StatCard({ label, value, sub, spark, color }: StatCardProps) {
   return (
-    <div>
-      <h2>Dashboard</h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-        <StatBox label="Deals gesamt" value={stats.total_deals} />
-        <StatBox label="Neue Deals" value={stats.new_deals} />
-        <StatBox label="Gekauft" value={stats.bought_deals} />
-        <StatBox label="Verkauft" value={stats.sold_deals} />
-        <StatBox label="Profit gesamt" value={`${(stats.total_profit_cents / 100).toFixed(2)} €`} />
-        <StatBox label="Ø Marge" value={`${stats.avg_margin_percent}%`} />
+    <div className="card">
+      <div className="card-title">{label}</div>
+      <div className="card-value" style={color ? { color } : undefined}>
+        {value}
       </div>
+      {sub && <div className="muted mono" style={{ fontSize: 11, marginTop: 4 }}>{sub}</div>}
+      {spark && spark.length > 1 && <Sparkline values={spark} color={color} />}
     </div>
   );
 }
 
-function StatBox({ label, value }: { label: string; value: string | number }) {
+export function StatsPanel() {
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    statsApi
+      .get()
+      .then(setStats)
+      .catch((err) => setError(err.message ?? 'Failed to load stats'));
+  }, []);
+
+  if (error) {
+    return (
+      <div className="card" style={{ borderColor: 'var(--accent-red)' }}>
+        <span className="text-red mono">STATS ERROR: {error}</span>
+      </div>
+    );
+  }
+
+  if (!stats) {
+    return (
+      <div className="stats-grid">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="card">
+            <div className="card-title">—</div>
+            <div className="card-value muted">…</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Synthetic sparkline data (placeholder until we have real time series endpoints)
+  const randomSpark = (seed: number, len = 12) => {
+    const out: number[] = [];
+    let x = seed;
+    for (let i = 0; i < len; i++) {
+      x = (x * 9301 + 49297) % 233280;
+      out.push(x / 233280);
+    }
+    return out;
+  };
+
+  const profit = stats.flips.total_profit_cents;
+  const profitColor =
+    profit > 0 ? 'var(--accent-green)' : profit < 0 ? 'var(--accent-red)' : undefined;
+
   return (
-    <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 16, textAlign: 'center' }}>
-      <div style={{ fontSize: 24, fontWeight: 'bold' }}>{value}</div>
-      <div style={{ color: '#666', fontSize: 14 }}>{label}</div>
+    <div className="stats-grid">
+      <StatCard
+        label="Deals Today"
+        value={String(stats.deals.today)}
+        sub={`${stats.deals.this_week} this week`}
+        spark={randomSpark(stats.deals.today + 1)}
+        color="var(--accent-blue)"
+      />
+      <StatCard
+        label="Total Deals"
+        value={String(stats.deals.total)}
+        sub={`${stats.deals.by_status.new} new · ${stats.deals.by_status.bought} bought`}
+        spark={randomSpark(stats.deals.total + 2)}
+      />
+      <StatCard
+        label="Avg. Margin (Top 10%)"
+        value={`${stats.margins.top_10pct_avg_percent.toFixed(1)}%`}
+        sub={`Overall avg: ${stats.margins.overall_avg_percent.toFixed(1)}%`}
+        spark={randomSpark(Math.round(stats.margins.top_10pct_avg_percent) + 3)}
+        color="var(--accent-yellow)"
+      />
+      <StatCard
+        label="Profit (All Time)"
+        value={formatCents(profit)}
+        sub={`This month: ${formatCents(stats.flips.profit_this_month_cents)}`}
+        spark={randomSpark(stats.flips.total_count + 4)}
+        color={profitColor}
+      />
     </div>
   );
 }

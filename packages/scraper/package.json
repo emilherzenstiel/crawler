@@ -6,7 +6,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "dev": "ts-node src/index.ts",
+    "dev": "tsx src/index.ts",
+    "scrape": "tsx src/index.ts",
     "start": "node dist/index.js"
   },
   "dependencies": {
@@ -18,7 +19,7 @@
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
     "@types/node-cron": "^3.0.11",
-    "ts-node": "^10.9.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.5.0"
   }
 }
