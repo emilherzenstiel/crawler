@@ -689,6 +689,113 @@ textarea:focus {
   padding: 2px 0;
 }
 
+/* Stats grid variant (5 columns) */
+.stats-grid.five {
+  grid-template-columns: repeat(5, 1fr);
+}
+@media (max-width: 1200px) {
+  .stats-grid.five {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Profit bar chart */
+.bar-chart {
+  display: flex;
+  gap: var(--space-3);
+  align-items: stretch;
+  padding: var(--space-2) 0;
+}
+.bar-chart .bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.bar-chart .bar-slot {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+.bar-chart .bar-slot.top {
+  align-items: flex-end;
+  justify-content: center;
+}
+.bar-chart .bar-slot.bottom {
+  align-items: flex-start;
+  justify-content: center;
+}
+.bar-chart .axis {
+  height: 1px;
+  background: var(--border-strong);
+}
+.bar-chart .bar {
+  width: 70%;
+  min-height: 1px;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+.bar-chart .bar.positive {
+  background: var(--accent-green);
+  border-radius: 2px 2px 0 0;
+  box-shadow: 0 0 12px rgba(0, 255, 136, 0.25);
+}
+.bar-chart .bar.negative {
+  background: var(--accent-red);
+  border-radius: 0 0 2px 2px;
+}
+.bar-chart .bar-col:hover .bar.positive {
+  box-shadow: 0 0 18px rgba(0, 255, 136, 0.55);
+}
+.bar-chart .bar-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: var(--space-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bar-chart .bar-value {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  margin-bottom: 2px;
+  min-height: 12px;
+}
+
+/* Flip row color-coding */
+.flip-row-positive > td:first-child {
+  border-left: 3px solid var(--accent-green);
+}
+.flip-row-negative > td:first-child {
+  border-left: 3px solid var(--accent-red);
+}
+.flip-row-positive td {
+  background: rgba(0, 255, 136, 0.03);
+}
+.flip-row-negative td {
+  background: rgba(255, 51, 85, 0.04);
+}
+.data-table tr.flip-row-positive:hover td {
+  background: rgba(0, 255, 136, 0.08);
+}
+.data-table tr.flip-row-negative:hover td {
+  background: rgba(255, 51, 85, 0.08);
+}
+
+/* Deal card quick-action button */
+.deal-card .aside .quick-action {
+  font-size: 11px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
 .toolbar {
   display: flex;
   justify-content: space-between;

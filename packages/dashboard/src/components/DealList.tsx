@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { DealCard } from './DealCard';
+import { BuyDealModal } from './BuyDealModal';
+import { SellFlipModal } from './SellFlipModal';
 import { useDeals } from '../hooks/useDeals';
 import { categoriesApi, Category, DealsQuery, dealsApi, Deal } from '../api/client';
 
@@ -12,6 +14,8 @@ export function DealList() {
   const [status, setStatus] = useState<StatusFilter>('');
   const [minMargin, setMinMargin] = useState<string>('');
   const [sortBy, setSortBy] = useState<SortKey>('score');
+  const [buyingDeal, setBuyingDeal] = useState<Deal | null>(null);
+  const [sellingDeal, setSellingDeal] = useState<Deal | null>(null);
 
   useEffect(() => {
     categoriesApi.list().then(setCategories).catch(console.error);
@@ -121,7 +125,13 @@ export function DealList() {
 
       <div className="col">
         {filtered.map((deal) => (
-          <DealCard key={deal.id} deal={deal} onStatusChange={handleStatusChange} />
+          <DealCard
+            key={deal.id}
+            deal={deal}
+            onStatusChange={handleStatusChange}
+            onBuy={setBuyingDeal}
+            onSell={setSellingDeal}
+          />
         ))}
       </div>
 
@@ -129,6 +139,21 @@ export function DealList() {
         <div className="muted mono" style={{ marginTop: 16, fontSize: 11 }}>
           Showing {filtered.length} of {data.pagination.total}
         </div>
+      )}
+
+      {buyingDeal && (
+        <BuyDealModal
+          deal={buyingDeal}
+          onClose={() => setBuyingDeal(null)}
+          onSaved={(updated) => updateLocalDeal(updated.id, updated)}
+        />
+      )}
+      {sellingDeal && (
+        <SellFlipModal
+          deal={sellingDeal}
+          onClose={() => setSellingDeal(null)}
+          onSaved={() => refetch()}
+        />
       )}
     </div>
   );

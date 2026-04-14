@@ -4,9 +4,11 @@ import { MarginBadge } from './MarginBadge';
 interface DealCardProps {
   deal: Deal;
   onStatusChange?: (id: number, status: Deal['status']) => void;
+  onBuy?: (deal: Deal) => void;
+  onSell?: (deal: Deal) => void;
 }
 
-export function DealCard({ deal, onStatusChange }: DealCardProps) {
+export function DealCard({ deal, onStatusChange, onBuy, onSell }: DealCardProps) {
   const hot = (deal.margin_percent ?? 0) >= 100;
 
   return (
@@ -77,6 +79,17 @@ export function DealCard({ deal, onStatusChange }: DealCardProps) {
           </select>
         ) : (
           <span className={`status-pill ${deal.status}`}>{deal.status}</span>
+        )}
+
+        {(deal.status === 'new' || deal.status === 'contacted') && onBuy && (
+          <button className="primary quick-action" onClick={() => onBuy(deal)}>
+            Buy →
+          </button>
+        )}
+        {deal.status === 'bought' && onSell && (
+          <button className="primary quick-action" onClick={() => onSell(deal)}>
+            Sell →
+          </button>
         )}
       </div>
     </div>

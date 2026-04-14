@@ -1,35 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   flipsApi,
   dealsApi,
   Flip,
   Deal,
+  formatCents,
   formatCentsPrecise,
 } from '../api/client';
-
-interface FormState {
-  deal_id: string;
-  bought_price_euros: string;
-  sold_price_euros: string;
-  platform_fees_euros: string;
-  sold_at: string;
-  notes: string;
-}
-
-const EMPTY: FormState = {
-  deal_id: '',
-  bought_price_euros: '',
-  sold_price_euros: '',
-  platform_fees_euros: '0',
-  sold_at: '',
-  notes: '',
-};
+import { SellFlipModal } from '../components/SellFlipModal';
+import { ProfitBarChart } from '../components/BarChart';
 
 export function FlipsPage() {
   const [flips, setFlips] = useState<Flip[]>([]);
-  const [boughtDeals, setBoughtDeals] = useState<Deal[]>([]);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<FormState>(EMPTY);
+  const [candidates, setCandidates] = useState<Deal[] | null>(null);
+  const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = () => {
@@ -38,62 +23,86 @@ export function FlipsPage() {
 
   useEffect(load, []);
 
-  const openCreate = async () => {
+  const openPicker = async () => {
     setError(null);
-    setForm(EMPTY);
+    setShowPicker(true);
     try {
-      // Candidates: deals in "bought" or "contacted" status (ready to flip)
       const [bought, contacted] = await Promise.all([
         dealsApi.list({ status: 'bought', limit: 200 }),
         dealsApi.list({ status: 'contacted', limit: 200 }),
       ]);
-      setBoughtDeals([...bought.deals, ...contacted.deals]);
+      setCandidates([...bought.deals, ...contacted.deals]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load candidate deals');
-    }
-    setShowForm(true);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    if (!form.deal_id) {
-      setError('Select a deal');
-      return;
-    }
-    try {
-      await flipsApi.create({
-        deal_id: Number(form.deal_id),
-        bought_price: Math.round(Number(form.bought_price_euros) * 100),
-        sold_price: Math.round(Number(form.sold_price_euros) * 100),
-        platform_fees: Math.round(Number(form.platform_fees_euros || 0) * 100),
-        sold_at: form.sold_at ? new Date(form.sold_at).toISOString() : undefined,
-        notes: form.notes || undefined,
-      });
-      setShowForm(false);
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Create failed');
     }
   };
 
   const handleDelete = async (id: number) => {
     if (!confirm('Flip löschen?')) return;
-    await flipsApi.delete(id);
-    load();
+    try {
+      await flipsApi.delete(id);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed');
+    }
   };
 
-  const totalProfit = flips.reduce((sum, f) => sum + f.net_profit, 0);
-  const totalFees = flips.reduce((sum, f) => sum + f.platform_fees, 0);
-  const totalSold = flips.reduce((sum, f) => sum + f.sold_price, 0);
-  const totalBought = flips.reduce((sum, f) => sum + f.bought_price, 0);
-  const roi = totalBought > 0 ? (totalProfit / totalBought) * 100 : 0;
+  // ------ Derived stats ------
+  const sortedFlips = useMemo(
+    () =>
+      [...flips].sort((a, b) => {
+        const da = a.sold_at ? new Date(a.sold_at).getTime() : 0;
+        const db = b.sold_at ? new Date(b.sold_at).getTime() : 0;
+        return db - da;
+      }),
+    [flips],
+  );
 
-  // Live preview of form numbers
-  const previewBought = Math.round(Number(form.bought_price_euros || 0) * 100);
-  const previewSold = Math.round(Number(form.sold_price_euros || 0) * 100);
-  const previewFees = Math.round(Number(form.platform_fees_euros || 0) * 100);
-  const previewProfit = previewSold - previewBought - previewFees;
+  const totalProfit = flips.reduce((sum, f) => sum + f.net_profit, 0);
+  const totalBought = flips.reduce((sum, f) => sum + f.bought_price, 0);
+  const avgRoi = totalBought > 0 ? (totalProfit / totalBought) * 100 : 0;
+
+  const now = new Date();
+  const thisMonthProfit = flips
+    .filter((f) => {
+      if (!f.sold_at) return false;
+      const d = new Date(f.sold_at);
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    })
+    .reduce((sum, f) => sum + f.net_profit, 0);
+
+  const bestFlip = flips.reduce<Flip | null>(
+    (best, f) => (!best || f.net_profit > best.net_profit ? f : best),
+    null,
+  );
+
+  // ------ Monthly profit buckets (last 6 months) ------
+  const monthlyProfit = useMemo(() => {
+    const buckets = new Map<string, number>();
+    const labels = new Map<string, string>();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      buckets.set(key, 0);
+      labels.set(
+        key,
+        d.toLocaleString('de-DE', { month: 'short' }).replace('.', ''),
+      );
+    }
+    for (const f of flips) {
+      if (!f.sold_at) continue;
+      const d = new Date(f.sold_at);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (buckets.has(key)) {
+        buckets.set(key, (buckets.get(key) ?? 0) + f.net_profit);
+      }
+    }
+    return Array.from(buckets.entries()).map(([key, value]) => ({
+      label: labels.get(key) ?? key.slice(5),
+      value,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flips]);
 
   return (
     <div>
@@ -102,7 +111,7 @@ export function FlipsPage() {
           <h1>Flips / P&amp;L</h1>
           <div className="subtitle">Completed deals · net profit tracker</div>
         </div>
-        <button className="primary" onClick={openCreate}>
+        <button className="primary" onClick={openPicker}>
           + Record Flip
         </button>
       </div>
@@ -113,14 +122,41 @@ export function FlipsPage() {
         </div>
       )}
 
-      <div className="stats-grid">
+      {/* Stats grid: 5 cards */}
+      <div className="stats-grid five">
         <div className="card">
           <div className="card-title">Total Profit</div>
           <div
             className="card-value"
-            style={{ color: totalProfit >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}
+            style={{
+              color:
+                totalProfit >= 0 ? 'var(--accent-green)' : 'var(--accent-red)',
+            }}
           >
             {formatCentsPrecise(totalProfit)}
+          </div>
+        </div>
+        <div className="card">
+          <div className="card-title">This Month</div>
+          <div
+            className="card-value"
+            style={{
+              color:
+                thisMonthProfit >= 0 ? 'var(--accent-green)' : 'var(--accent-red)',
+            }}
+          >
+            {formatCentsPrecise(thisMonthProfit)}
+          </div>
+        </div>
+        <div className="card">
+          <div className="card-title">Avg ROI</div>
+          <div
+            className="card-value"
+            style={{
+              color: avgRoi >= 0 ? 'var(--accent-green)' : 'var(--accent-red)',
+            }}
+          >
+            {avgRoi.toFixed(1)}%
           </div>
         </div>
         <div className="card">
@@ -128,196 +164,188 @@ export function FlipsPage() {
           <div className="card-value">{flips.length}</div>
         </div>
         <div className="card">
-          <div className="card-title">ROI</div>
+          <div className="card-title">Best Flip</div>
           <div
-            className="card-value"
-            style={{ color: roi >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}
+            className="card-value text-green"
+            style={{ fontSize: 20 }}
+            title={bestFlip?.deal_title ?? ''}
           >
-            {roi.toFixed(1)}%
+            {bestFlip ? formatCentsPrecise(bestFlip.net_profit) : '—'}
           </div>
-        </div>
-        <div className="card">
-          <div className="card-title">Platform Fees</div>
-          <div className="card-value text-red">{formatCentsPrecise(totalFees)}</div>
+          {bestFlip?.deal_title && (
+            <div
+              className="muted mono"
+              style={{
+                fontSize: 10,
+                marginTop: 4,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {bestFlip.deal_title}
+            </div>
+          )}
         </div>
       </div>
 
-      <table className="data-table mt-4">
+      {/* Profit per month bar chart */}
+      <div className="card mb-4">
+        <div className="card-title">Profit / Month (last 6)</div>
+        <ProfitBarChart data={monthlyProfit} />
+      </div>
+
+      <table className="data-table">
         <thead>
           <tr>
-            <th>Sold At</th>
+            <th style={{ width: 90 }}>Sold At</th>
             <th>Deal</th>
-            <th>Bought</th>
-            <th>Sold</th>
-            <th>Fees</th>
-            <th>Net Profit</th>
-            <th>Notes</th>
-            <th />
+            <th style={{ width: 100 }}>Bought</th>
+            <th style={{ width: 100 }}>Sold</th>
+            <th style={{ width: 100 }}>Fees</th>
+            <th style={{ width: 120 }}>Net Profit</th>
+            <th style={{ width: 80 }}>ROI</th>
+            <th style={{ width: 60 }} />
           </tr>
         </thead>
         <tbody>
-          {flips.map((f) => (
-            <tr key={f.id}>
-              <td className="muted" style={{ fontSize: 11 }}>
-                {f.sold_at ? new Date(f.sold_at).toLocaleDateString('de-DE') : '—'}
-              </td>
-              <td>
-                {f.deal_url ? (
-                  <a href={f.deal_url} target="_blank" rel="noopener noreferrer">
-                    {f.deal_title ?? `#${f.deal_id}`}
-                  </a>
-                ) : (
-                  f.deal_title ?? `#${f.deal_id}`
-                )}
-              </td>
-              <td>{formatCentsPrecise(f.bought_price)}</td>
-              <td>{formatCentsPrecise(f.sold_price)}</td>
-              <td className="text-red">{formatCentsPrecise(f.platform_fees)}</td>
-              <td
-                className={f.net_profit >= 0 ? 'text-green' : 'text-red'}
-                style={{ fontWeight: 700 }}
+          {sortedFlips.map((f) => {
+            const roi =
+              f.bought_price > 0 ? (f.net_profit / f.bought_price) * 100 : 0;
+            const positive = f.net_profit >= 0;
+            return (
+              <tr
+                key={f.id}
+                className={positive ? 'flip-row-positive' : 'flip-row-negative'}
               >
-                {formatCentsPrecise(f.net_profit)}
-              </td>
-              <td className="muted" style={{ maxWidth: 200, fontSize: 11 }}>
-                {f.notes ?? '—'}
-              </td>
-              <td>
-                <button className="danger" onClick={() => handleDelete(f.id)}>
-                  Del
-                </button>
-              </td>
-            </tr>
-          ))}
+                <td className="muted" style={{ fontSize: 11 }}>
+                  {f.sold_at
+                    ? new Date(f.sold_at).toLocaleDateString('de-DE')
+                    : '—'}
+                </td>
+                <td>
+                  {f.deal_url ? (
+                    <a href={f.deal_url} target="_blank" rel="noopener noreferrer">
+                      {f.deal_title ?? `#${f.deal_id}`}
+                    </a>
+                  ) : (
+                    f.deal_title ?? `#${f.deal_id}`
+                  )}
+                </td>
+                <td>{formatCents(f.bought_price)}</td>
+                <td>{formatCents(f.sold_price)}</td>
+                <td className="muted">{formatCents(f.platform_fees)}</td>
+                <td
+                  className={positive ? 'text-green' : 'text-red'}
+                  style={{ fontWeight: 700 }}
+                >
+                  {formatCentsPrecise(f.net_profit)}
+                </td>
+                <td
+                  className={positive ? 'text-green' : 'text-red'}
+                  style={{ fontWeight: 500 }}
+                >
+                  {f.bought_price > 0 ? `${roi.toFixed(1)}%` : '—'}
+                </td>
+                <td>
+                  <button className="danger" onClick={() => handleDelete(f.id)}>
+                    Del
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
           {flips.length === 0 && (
             <tr>
               <td colSpan={8} className="empty-state">
-                No flips recorded yet.
+                No flips recorded yet. Mark a bought deal as "Sold" to start
+                tracking P&amp;L.
               </td>
             </tr>
           )}
         </tbody>
       </table>
 
-      {showForm && (
-        <div className="modal-backdrop" onClick={() => setShowForm(false)}>
+      {/* Deal picker for Record Flip fallback flow */}
+      {showPicker && !selectedDeal && (
+        <div
+          className="modal-backdrop"
+          onClick={() => {
+            setShowPicker(false);
+            setCandidates(null);
+          }}
+        >
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Record Flip</h2>
-            <form onSubmit={handleSubmit}>
-              <div className="form-group">
-                <label>Deal</label>
-                <select
-                  value={form.deal_id}
-                  onChange={(e) => {
-                    const dealId = e.target.value;
-                    const deal = boughtDeals.find((d) => d.id === Number(dealId));
-                    setForm({
-                      ...form,
-                      deal_id: dealId,
-                      bought_price_euros:
-                        deal?.bought_price != null
-                          ? String(deal.bought_price / 100)
-                          : deal?.ask_price != null
-                          ? String(deal.ask_price / 100)
-                          : form.bought_price_euros,
-                      sold_price_euros:
-                        deal?.estimated_sell_price != null
-                          ? String(deal.estimated_sell_price / 100)
-                          : form.sold_price_euros,
-                    });
-                  }}
-                  required
-                >
-                  <option value="">— select —</option>
-                  {boughtDeals.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.title.slice(0, 60)} ({d.status})
-                    </option>
-                  ))}
-                </select>
-                {boughtDeals.length === 0 && (
-                  <span className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-                    No deals with status "bought" or "contacted" found. Mark a deal as bought first.
-                  </span>
-                )}
-              </div>
-              <div className="row gap-2">
-                <div className="form-group grow">
-                  <label>Bought Price (€)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={form.bought_price_euros}
-                    onChange={(e) => setForm({ ...form, bought_price_euros: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="form-group grow">
-                  <label>Sold Price (€)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={form.sold_price_euros}
-                    onChange={(e) => setForm({ ...form, sold_price_euros: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="form-group grow">
-                  <label>Fees (€)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={form.platform_fees_euros}
-                    onChange={(e) => setForm({ ...form, platform_fees_euros: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="form-group">
-                <label>Sold At (leave empty for now)</label>
-                <input
-                  type="date"
-                  value={form.sold_at}
-                  onChange={(e) => setForm({ ...form, sold_at: e.target.value })}
-                />
-              </div>
-              <div className="form-group">
-                <label>Notes</label>
-                <textarea
-                  value={form.notes}
-                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                  rows={2}
-                />
-              </div>
+            <h2>Pick a Deal to Flip</h2>
+            {candidates == null ? (
+              <p className="muted mono">Loading…</p>
+            ) : candidates.length === 0 ? (
+              <p className="muted mono" style={{ fontSize: 12 }}>
+                No deals with status "bought" or "contacted" found. Mark a deal
+                as bought first from the Dashboard.
+              </p>
+            ) : (
               <div
-                className="card"
-                style={{
-                  padding: 12,
-                  background: 'var(--bg)',
-                  marginBottom: 12,
+                className="col"
+                style={{ maxHeight: 400, overflowY: 'auto', gap: 6 }}
+              >
+                {candidates.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedDeal(d);
+                      setShowPicker(false);
+                    }}
+                    style={{
+                      textAlign: 'left',
+                      padding: 10,
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 12,
+                    }}
+                  >
+                    <div style={{ color: 'var(--text)' }}>
+                      {d.title.slice(0, 70)}
+                    </div>
+                    <div
+                      className="muted"
+                      style={{ fontSize: 10, marginTop: 2 }}
+                    >
+                      {d.platform} · {d.status} · ask{' '}
+                      {formatCentsPrecise(d.ask_price)}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPicker(false);
+                  setCandidates(null);
                 }}
               >
-                <div className="card-title">Preview Net Profit</div>
-                <div
-                  className="card-value"
-                  style={{
-                    fontSize: 18,
-                    color: previewProfit >= 0 ? 'var(--accent-green)' : 'var(--accent-red)',
-                  }}
-                >
-                  {formatCentsPrecise(previewProfit)}
-                </div>
-              </div>
-              <div className="row" style={{ justifyContent: 'flex-end' }}>
-                <button type="button" onClick={() => setShowForm(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="primary">
-                  Record
-                </button>
-              </div>
-            </form>
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
+      )}
+
+      {selectedDeal && (
+        <SellFlipModal
+          deal={selectedDeal}
+          onClose={() => {
+            setSelectedDeal(null);
+            setCandidates(null);
+          }}
+          onSaved={() => {
+            load();
+            setSelectedDeal(null);
+            setCandidates(null);
+          }}
+        />
       )}
     </div>
   );
